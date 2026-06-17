@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Shell</title>
+    <link rel="stylesheet" href="vendor/xterm.css">
+    <link rel="stylesheet" href="terminal.css">
+</head>
+<body>
+    <!-- Loading overlay (shown until Claude Code starts producing output) -->
+    <div id="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Starting Claude Code...</div>
+            <div class="loading-sub">This typically takes a few seconds on first launch</div>
+        </div>
+    </div>
+
+    <div id="app">
+        <!-- Toolbar -->
+        <div id="toolbar">
+            <button class="toolbar-btn" id="btn-restart" title="Restart Claude (kill and relaunch)">
+                <svg viewBox="0 0 16 16"><path d="M11.534 7h3.932a.25.25 0 01.192.41l-1.966 2.36a.25.25 0 01-.384 0l-1.966-2.36a.25.25 0 01.192-.41zm-7.068 0H.534a.25.25 0 00-.192.41l1.966 2.36a.25.25 0 00.384 0l1.966-2.36A.25.25 0 004.466 7zM8 3a5 5 0 00-4.546 2.914.5.5 0 01-.908-.418A6 6 0 018 2a6 6 0 015.454 3.496.5.5 0 01-.908.418A5 5 0 008 3zm0 10a5 5 0 004.546-2.914.5.5 0 01.908.418A6 6 0 018 14a6 6 0 01-5.454-3.496.5.5 0 01.908-.418A5 5 0 008 13z"/></svg>
+                Restart
+            </button>
+            <button class="toolbar-btn" id="btn-clear" title="Clear terminal screen (Ctrl+L)">
+                <svg viewBox="0 0 16 16"><path d="M5 3.25a.75.75 0 01.75-.75h4.5a.75.75 0 010 1.5h-4.5A.75.75 0 015 3.25zm-2 2a.75.75 0 01.75-.75h8.5a.75.75 0 010 1.5h-8.5A.75.75 0 013 5.25zm0 2a.75.75 0 01.75-.75h8.5a.75.75 0 010 1.5h-8.5A.75.75 0 013 7.25zm0 2a.75.75 0 01.75-.75h8.5a.75.75 0 010 1.5h-8.5A.75.75 0 013 9.25zm0 2a.75.75 0 01.75-.75h8.5a.75.75 0 010 1.5h-8.5a.75.75 0 01-.75-.75zm0 2a.75.75 0 01.75-.75h4.5a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75z"/></svg>
+                Clear
+            </button>
+            <button class="toolbar-btn" id="btn-search" title="Find in terminal (Ctrl+F)">
+                <svg viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85a1.007 1.007 0 00-.115-.1zM12 6.5a5.5 5.5 0 11-11 0 5.5 5.5 0 0111 0z"/></svg>
+            </button>
+            <div class="toolbar-separator"></div>
+            <button class="toolbar-btn" id="btn-browser" title="Open in system browser">
+                <svg viewBox="0 0 16 16"><path d="M4.715 6.542L3.343 7.914a3 3 0 104.243 4.243l1.828-1.829A3 3 0 008.586 5.5L8 6.086a1.002 1.002 0 00-.154.199 2 2 0 01.861 3.337L6.88 11.45a2 2 0 11-2.83-2.83l.793-.792a4.018 4.018 0 01-.128-1.287z"/><path d="M6.586 4.672A3 3 0 007.414 9.5l.586-.586a1.002 1.002 0 00.154-.199 2 2 0 01-.861-3.337L9.12 3.55a2 2 0 112.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 10-4.243-4.243L6.586 4.672z"/></svg>
+                Browser
+            </button>
+            <div class="toolbar-spacer"></div>
+            <button class="toolbar-btn" id="btn-settings" title="Settings">
+                <svg viewBox="0 0 16 16"><path d="M8 4.754a3.246 3.246 0 100 6.492 3.246 3.246 0 000-6.492zM5.754 8a2.246 2.246 0 114.492 0 2.246 2.246 0 01-4.492 0z"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 01-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 01-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 01.52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 011.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 011.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 01.52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 01-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 01-1.255-.52l-.094-.319zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 002.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 001.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 00-1.115 2.693l.16.291c.415.764-.421 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 00-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 00-2.692-1.115l-.292.16c-.764.415-1.6-.421-1.184-1.185l.159-.291A1.873 1.873 0 001.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 003.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 002.692-1.115l.094-.319z"/></svg>
+            </button>
+        </div>
+
+        <!-- Search Overlay -->
+        <div id="search-overlay">
+            <input id="search-input" type="text" placeholder="Search..." autocomplete="off" spellcheck="false">
+            <button class="search-toggle" id="search-regex" title="Use Regular Expression">.*</button>
+            <button class="search-toggle" id="search-case" title="Match Case">Aa</button>
+            <span id="search-count"></span>
+            <button class="search-nav-btn" id="search-prev" title="Previous Match (Shift+Enter)">&uarr;</button>
+            <button class="search-nav-btn" id="search-next" title="Next Match (Enter)">&darr;</button>
+            <button id="search-close" title="Close (Escape)">&times;</button>
+        </div>
+
+        <!-- Terminal -->
+        <div id="terminal"></div>
+
+        <!-- Status Bar -->
+        <div id="statusbar">
+            <div class="status-item">
+                <span class="status-dot" id="status-dot"></span>
+                <span id="status-label">Connecting...</span>
+            </div>
+            <div class="status-separator"></div>
+            <div class="status-item">
+                <span id="status-project">--</span>
+            </div>
+            <div class="status-separator"></div>
+            <div class="status-item">
+                <span id="status-port">--</span>
+            </div>
+            <div class="status-separator"></div>
+            <div class="status-item">
+                <span id="status-dims">--</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="context-menu">
+        <div class="ctx-item" data-action="copy">Copy <span class="shortcut">Ctrl+C</span></div>
+        <div class="ctx-item" data-action="paste">Paste <span class="shortcut">Ctrl+V</span></div>
+        <div class="ctx-item" data-action="selectall">Select All</div>
+        <div class="ctx-divider"></div>
+        <div class="ctx-item" data-action="search">Find <span class="shortcut">Ctrl+F</span></div>
+        <div class="ctx-item" data-action="clear">Clear <span class="shortcut">Ctrl+L</span></div>
+        <div class="ctx-divider"></div>
+        <div class="ctx-item" data-action="browser">Open in Browser</div>
+        <div class="ctx-item" data-action="restart">Restart Claude</div>
+    </div>
+
+    <!-- Settings Panel -->
+    <div id="settings-panel">
+        <div class="settings-group">
+            <label class="settings-label">Font Size</label>
+            <div class="settings-row">
+                <input type="range" id="font-size-slider" min="8" max="32" step="1">
+                <span class="value" id="font-size-value">14px</span>
+            </div>
+        </div>
+        <div class="settings-group">
+            <label class="settings-label">Theme</label>
+            <div class="theme-grid">
+                <button class="theme-btn active" data-theme="mocha">Mocha</button>
+                <button class="theme-btn" data-theme="latte">Latte</button>
+                <button class="theme-btn" data-theme="dracula">Dracula</button>
+                <button class="theme-btn" data-theme="onedark">One Dark</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="vendor/xterm.min.js"></script>
+    <script src="vendor/xterm-addon-fit.min.js"></script>
+    <script src="vendor/xterm-addon-search.min.js"></script>
+    <script src="vendor/xterm-addon-web-links.min.js"></script>
+    <script src="vendor/xterm-addon-webgl.min.js"></script>
+    <script src="terminal.js"></script>
+</body>
+</html>

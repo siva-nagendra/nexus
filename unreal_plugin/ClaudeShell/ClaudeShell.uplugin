@@ -1,0 +1,25 @@
+{
+    "FileVersion": 3,
+    "Version": 3,
+    "VersionName": "3.0.0",
+    "FriendlyName": "Claude Shell",
+    "Description": "Embedded Claude Code terminal for Unreal Engine Editor",
+    "Category": "Editor",
+    "CreatedBy": "Nexus Team",
+    "CanContainContent": true,
+    "IsBetaVersion": false,
+    "EnabledByDefault": true,
+    "Modules": [
+        {
+            "Name": "ClaudeShell",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
+        }
+    ],
+    "Plugins": [
+        {
+            "Name": "WebBrowserWidget",
+            "Enabled": true
+        }
+    ]
+}

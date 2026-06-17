@@ -1,0 +1,33 @@
+{
+    "FileVersion": 3,
+    "Version": 1,
+    "VersionName": "0.1.0",
+    "FriendlyName": "Nexus MCP",
+    "Description": "Comprehensive MCP server bridge for external AI tool integration with Unreal Engine 5.7",
+    "Category": "Editor",
+    "CreatedBy": "Nexus Team",
+    "CreatedByURL": "",
+    "DocsURL": "",
+    "MarketplaceURL": "",
+    "CanContainContent": false,
+    "IsBetaVersion": true,
+    "IsExperimentalVersion": false,
+    "Installed": false,
+    "EnabledByDefault": true,
+    "Modules": [
+        {
+            "Name": "Nexus",
+            "Type": "Editor",
+            "LoadingPhase": "PostEngineInit"
+        }
+    ],
+    "Plugins": [
+        { "Name": "MovieRenderPipeline", "Enabled": true },
+        { "Name": "Niagara", "Enabled": true },
+        { "Name": "Metasound", "Enabled": true },
+        { "Name": "EnhancedInput", "Enabled": true },
+        { "Name": "GameFeatures", "Enabled": true },
+        { "Name": "PCG", "Enabled": true },
+        { "Name": "PythonScriptPlugin", "Enabled": true }
+    ]
+}

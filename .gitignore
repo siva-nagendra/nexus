@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# UE C++
+Binaries/
+Intermediate/
+*Build/
+DerivedDataCache/
+Saved/
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ClaudeShell state
+.claudeshell/
+
+# Ralph Loop (local dev automation)
+PROMPT.md
+PROGRESS.md
+scripts/ralph.ps1
+scripts/logs/

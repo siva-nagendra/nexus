@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus In-Game Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0a0a0f; color: #e8e9ec; overflow-x: hidden; }
+
+  .header { text-align: center; padding: 40px 20px 20px; }
+  .header h1 { font-size: 2.4em; background: linear-gradient(135deg, #4d9af5, #a855f7, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .header p { color: #9ca3af; margin-top: 8px; font-size: 1.1em; }
+
+  .tabs { display: flex; justify-content: center; gap: 8px; padding: 20px; flex-wrap: wrap; }
+  .tab { padding: 10px 24px; border-radius: 8px; cursor: pointer; background: #1a1a2e; border: 1px solid #2a2a4a; transition: all 0.3s; font-size: 0.95em; }
+  .tab:hover { border-color: #4d9af5; }
+  .tab.active { background: linear-gradient(135deg, #1a3a5c, #2a1a4c); border-color: #4d9af5; color: #4d9af5; }
+
+  .view { display: none; padding: 20px 40px; max-width: 1400px; margin: 0 auto; }
+  .view.active { display: block; }
+
+  /* Architecture Diagram */
+  .arch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .arch-card { background: linear-gradient(135deg, #12121f, #1a1a30); border: 1px solid #2a2a4a; border-radius: 16px; padding: 24px; position: relative; overflow: hidden; }
+  .arch-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 16px 16px 0 0; }
+  .arch-card.http::before { background: linear-gradient(90deg, #4d9af5, #06b6d4); }
+  .arch-card.state::before { background: linear-gradient(90deg, #10b981, #34d399); }
+  .arch-card.agent::before { background: linear-gradient(90deg, #a855f7, #c084fc); }
+  .arch-card.ui::before { background: linear-gradient(90deg, #ec4899, #f472b6); }
+  .arch-card.log::before { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+  .arch-card.full { grid-column: 1 / -1; }
+  .arch-card h3 { font-size: 1.2em; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .arch-card .badge { font-size: 0.7em; padding: 2px 8px; border-radius: 4px; font-weight: normal; }
+  .badge.game-thread { background: #1a3a2a; color: #34d399; }
+  .badge.zero-latency { background: #1a2a3a; color: #4d9af5; }
+  .badge.parallel { background: #2a1a3a; color: #c084fc; }
+  .arch-card p { color: #9ca3af; line-height: 1.6; font-size: 0.95em; }
+  .arch-card code { background: #1a1a2e; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; color: #4d9af5; }
+
+  /* Flow Diagram */
+  .flow-container { position: relative; padding: 40px 0; }
+  .flow-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 8px 0; flex-wrap: wrap; }
+  .flow-node { padding: 12px 20px; border-radius: 10px; font-size: 0.9em; text-align: center; min-width: 140px; position: relative; }
+  .flow-node.external { background: #1a2a3a; border: 1px solid #2a4a6a; color: #7dd3fc; }
+  .flow-node.http { background: #1a1a3a; border: 1px solid #4d5af5; color: #a5b4fc; }
+  .flow-node.engine { background: #1a3a2a; border: 1px solid #10b981; color: #6ee7b7; }
+  .flow-node.ml { background: #2a1a2a; border: 1px solid #a855f7; color: #d8b4fe; }
+  .flow-node.agent { background: #3a1a2a; border: 1px solid #ec4899; color: #f9a8d4; }
+  .flow-arrow { color: #4a4a6a; font-size: 1.4em; }
+  .flow-label { font-size: 0.75em; color: #6b7280; text-align: center; margin-top: 2px; }
+
+  /* Comparison Table */
+  .compare-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+  .compare-table th { padding: 12px 16px; text-align: left; border-bottom: 2px solid #2a2a4a; color: #9ca3af; font-weight: 600; }
+  .compare-table td { padding: 12px 16px; border-bottom: 1px solid #1a1a2a; }
+  .compare-table tr:hover { background: #12121f; }
+  .metric-good { color: #34d399; }
+  .metric-bad { color: #f87171; }
+  .metric-neutral { color: #fbbf24; }
+
+  /* Agent Visualization */
+  .agent-pool { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; margin: 24px 0; }
+  .agent-card { width: 260px; background: #12121f; border: 1px solid #2a2a4a; border-radius: 12px; padding: 16px; position: relative; }
+  .agent-card .status-dot { width: 8px; height: 8px; border-radius: 50%; position: absolute; top: 16px; right: 16px; animation: pulse 2s infinite; }
+  .agent-card .status-dot.running { background: #4d9af5; }
+  .agent-card .status-dot.idle { background: #6b7280; animation: none; }
+  .agent-card .status-dot.error { background: #f87171; }
+  .agent-card h4 { font-size: 0.95em; margin-bottom: 8px; }
+  .agent-card .goal { font-size: 0.8em; color: #9ca3af; margin-bottom: 12px; }
+  .agent-card .progress-bar { height: 4px; background: #1a1a2a; border-radius: 2px; overflow: hidden; margin-bottom: 8px; }
+  .agent-card .progress-fill { height: 100%; border-radius: 2px; transition: width 1s ease; }
+  .agent-card .progress-fill.blue { background: linear-gradient(90deg, #4d9af5, #06b6d4); }
+  .agent-card .progress-fill.purple { background: linear-gradient(90deg, #a855f7, #c084fc); }
+  .agent-card .progress-fill.pink { background: linear-gradient(90deg, #ec4899, #f472b6); }
+  .agent-card .meta { font-size: 0.75em; color: #6b7280; display: flex; justify-content: space-between; }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* Activity Panel Mockup */
+  .panel-mockup { max-width: 380px; margin: 24px auto; background: rgba(8,8,12,0.95); border: 1px solid rgba(77,154,245,0.3); border-radius: 14px; overflow: hidden; box-shadow: 0 0 30px rgba(77,154,245,0.1); }
+  .panel-header { padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1a1a2a; }
+  .panel-header h4 { font-size: 0.9em; display: flex; align-items: center; gap: 8px; }
+  .panel-header .dot { width: 6px; height: 6px; border-radius: 50%; background: #34d399; }
+  .panel-section { padding: 12px 16px; border-bottom: 1px solid #1a1a2a; }
+  .panel-section-title { font-size: 0.7em; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .cmd-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 0.8em; }
+  .cmd-row .cmd-name { flex: 1; color: #d1d5db; font-family: monospace; }
+  .cmd-row .cmd-time { font-size: 0.75em; padding: 1px 6px; border-radius: 3px; }
+  .cmd-row .cmd-time.fast { background: #1a3a2a; color: #34d399; }
+  .cmd-row .cmd-time.medium { background: #2a2a1a; color: #fbbf24; }
+  .cmd-row .cmd-time.slow { background: #2a1a1a; color: #f87171; }
+  .cmd-row .cmd-ok { color: #34d399; }
+  .cmd-row .cmd-fail { color: #f87171; }
+
+  /* Memory Section */
+  .memory-stats { display: flex; gap: 16px; padding: 8px 0; }
+  .memory-stat { text-align: center; flex: 1; }
+  .memory-stat .num { font-size: 1.4em; font-weight: 700; }
+  .memory-stat .num.blue { color: #4d9af5; }
+  .memory-stat .num.green { color: #34d399; }
+  .memory-stat .num.amber { color: #fbbf24; }
+  .memory-stat .label { font-size: 0.7em; color: #6b7280; margin-top: 2px; }
+
+  /* Timeline */
+  .timeline { position: relative; padding-left: 24px; margin: 20px 0; }
+  .timeline::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: #2a2a4a; }
+  .timeline-item { position: relative; margin-bottom: 16px; }
+  .timeline-item::before { content: ''; position: absolute; left: -20px; top: 6px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid; }
+  .timeline-item.step1::before { border-color: #4d9af5; background: #1a2a3a; }
+  .timeline-item.step2::before { border-color: #10b981; background: #1a3a2a; }
+  .timeline-item.step3::before { border-color: #a855f7; background: #2a1a3a; }
+  .timeline-item.step4::before { border-color: #ec4899; background: #3a1a2a; }
+  .timeline-item.step5::before { border-color: #f59e0b; background: #2a2a1a; }
+  .timeline-item h4 { font-size: 0.95em; margin-bottom: 4px; }
+  .timeline-item p { font-size: 0.85em; color: #9ca3af; }
+  .timeline-item .files { font-size: 0.8em; color: #6b7280; margin-top: 4px; font-family: monospace; }
+
+  /* Options Cards */
+  .option-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin: 20px 0; }
+  .option-card { background: #12121f; border: 1px solid #2a2a4a; border-radius: 14px; padding: 20px; position: relative; }
+  .option-card.recommended { border-color: #10b981; box-shadow: 0 0 20px rgba(16,185,129,0.1); }
+  .option-card.recommended::after { content: 'RECOMMENDED'; position: absolute; top: -10px; right: 16px; background: #10b981; color: #0a0a0f; font-size: 0.65em; font-weight: 700; padding: 2px 10px; border-radius: 4px; letter-spacing: 1px; }
+  .option-card h3 { font-size: 1.05em; margin-bottom: 10px; }
+  .option-card .desc { font-size: 0.85em; color: #9ca3af; margin-bottom: 14px; line-height: 1.5; }
+  .pro-con { font-size: 0.82em; margin: 4px 0; display: flex; gap: 6px; }
+  .pro-con .icon { flex-shrink: 0; }
+  .pro { color: #34d399; }
+  .con { color: #f87171; }
+
+  /* Risk cards */
+  .risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 20px 0; }
+  .risk-card { background: #12121f; border-left: 3px solid; border-radius: 0 10px 10px 0; padding: 16px 20px; }
+  .risk-card.high { border-color: #f87171; }
+  .risk-card.medium { border-color: #fbbf24; }
+  .risk-card.low { border-color: #4d9af5; }
+  .risk-card h4 { font-size: 0.95em; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .risk-card h4 .severity { font-size: 0.7em; padding: 1px 8px; border-radius: 3px; }
+  .risk-card h4 .severity.high { background: #2a1a1a; color: #f87171; }
+  .risk-card h4 .severity.medium { background: #2a2a1a; color: #fbbf24; }
+  .risk-card h4 .severity.low { background: #1a2a3a; color: #4d9af5; }
+  .risk-card p { font-size: 0.85em; color: #9ca3af; line-height: 1.5; }
+  .risk-card .mitigation { font-size: 0.82em; color: #34d399; margin-top: 8px; }
+
+  /* Feature roadmap */
+  .feature-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+  .feature-table th { padding: 10px 14px; text-align: left; border-bottom: 2px solid #2a2a4a; color: #9ca3af; font-weight: 600; font-size: 0.85em; }
+  .feature-table td { padding: 10px 14px; border-bottom: 1px solid #1a1a2a; font-size: 0.88em; vertical-align: top; }
+  .feature-table tr:hover { background: #12121f; }
+  .priority-badge { font-size: 0.7em; padding: 2px 8px; border-radius: 3px; font-weight: 600; }
+  .priority-badge.p0 { background: #2a1a1a; color: #f87171; }
+  .priority-badge.p1 { background: #2a2a1a; color: #fbbf24; }
+  .priority-badge.p2 { background: #1a2a3a; color: #4d9af5; }
+
+  /* Pipeline diagram */
+  .pipeline-step { display: flex; align-items: flex-start; gap: 16px; margin: 16px 0; padding: 16px; background: #12121f; border-radius: 12px; border: 1px solid #1a1a2a; }
+  .pipeline-step .step-num { min-width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9em; flex-shrink: 0; }
+  .pipeline-step .step-content h4 { font-size: 0.95em; margin-bottom: 4px; }
+  .pipeline-step .step-content p { font-size: 0.83em; color: #9ca3af; line-height: 1.5; }
+  .pipeline-step .step-content .endpoint { font-family: monospace; font-size: 0.8em; color: #4d9af5; background: #1a1a2e; padding: 1px 6px; border-radius: 3px; }
+  .pipeline-step .step-content .timing { font-size: 0.78em; color: #fbbf24; margin-top: 4px; }
+  .parallel-badge { font-size: 0.65em; background: #2a1a3a; color: #c084fc; padding: 1px 6px; border-radius: 3px; margin-left: 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Nexus In-Game-Loop Architecture</h1>
+  <p>SceneForge MCP Server: HTTP Server + Parallel Agents + Native State + Activity UI</p>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="showView('overview')">Overview</div>
+  <div class="tab" onclick="showView('flow')">Data Flow</div>
+  <div class="tab" onclick="showView('compare')">Before / After</div>
+  <div class="tab" onclick="showView('agents')">Parallel Agents</div>
+  <div class="tab" onclick="showView('ui')">Activity Panel</div>
+  <div class="tab" onclick="showView('timeline')">Build Timeline</div>
+  <div class="tab" onclick="showView('options')">Options / Trade-offs</div>
+  <div class="tab" onclick="showView('risks')">Risks / Gaps</div>
+  <div class="tab" onclick="showView('features')">Feature Roadmap</div>
+  <div class="tab" onclick="showView('pipeline')">Pipeline Deep-Dive</div>
+</div>
+
+<!-- OVERVIEW -->
+<div id="overview" class="view active">
+  <div class="arch-grid">
+    <div class="arch-card http">
+      <h3>Layer 1: In-Game HTTP Server <span class="badge game-thread">Game Thread</span> <span class="badge zero-latency">&lt;1ms</span></h3>
+      <p>Replaces TCP background thread with UE5's <code>FHttpServerModule</code>. Route handlers execute directly on the game thread during <code>Tick()</code>. Zero dispatch overhead, zero polling. Port 13378.</p>
+      <p style="margin-top:8px"><code>UNexusHttpSubsystem : UGameInstanceSubsystem</code></p>
+    </div>
+    <div class="arch-card state">
+      <h3>Layer 2: Native Scene State <span class="badge game-thread">Per-Frame</span></h3>
+      <p>Cached <code>FNexusSceneState</code> struct updated every frame in Tick(). Pipeline state, mode, segments, camera, actors, depth info. Handlers and agents read this instead of querying GameMode each call.</p>
+    </div>
+    <div class="arch-card agent full">
+      <h3>Layer 3: Parallel Agent Pool <span class="badge parallel">Concurrent</span></h3>
+      <p>Multiple <code>FNexusAgentWorker</code> instances run concurrently via independent <code>FTimerHandle</code> callbacks. Game-thread ops execute in timer callbacks; ML inference dispatches to <code>AsyncTask(AnyBackgroundThread)</code> with game-thread completion callbacks. Up to 5 concurrent agents. OODA loop: Observe (cached state) > Decide (goal planning) > Act (dispatcher call) > Evaluate (pre/post diff).</p>
+    </div>
+    <div class="arch-card ui">
+      <h3>Layer 4: Activity Panel <span class="badge" style="background:#3a1a2a;color:#f472b6">Glassmorphism</span></h3>
+      <p>Slate widget matching SceneForge's design. Live command stream with latency badges, per-agent status cards with progress bars, memory/learning indicators. Toggle via N hotkey or brain icon.</p>
+    </div>
+    <div class="arch-card log">
+      <h3>Layer 5: Call Logging <span class="badge" style="background:#2a2a1a;color:#fbbf24">RL Data</span></h3>
+      <p>Every command logged to <code>~/.nexus/memory/calls/YYYY-MM-DD.jsonl</code>. Unified format across C++ and Python paths. Command, params, response, timing, success/failure. Training dataset for reinforcement learning.</p>
+    </div>
+  </div>
+</div>
+
+<!-- DATA FLOW -->
+<div id="flow" class="view">
+  <h2 style="text-align:center;margin-bottom:24px;color:#9ca3af">Request Flow: Claude Code to Game Thread</h2>
+
+  <div class="flow-container">
+    <div class="flow-row">
+      <div class="flow-node external">Claude Code<br><span class="flow-label">MCP Client</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node external">Python MCP Server<br><span class="flow-label">FastMCP 3.1 (stdio)</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node http">HTTP POST :13378<br><span class="flow-label">/nexus/{command}</span></div>
+    </div>
+    <div style="text-align:center;color:#4a4a6a;font-size:1.4em;margin:8px 0">&darr;</div>
+    <div class="flow-row">
+      <div class="flow-node engine" style="min-width:400px">
+        <strong>FHttpServerModule::Tick()</strong><br>
+        <span class="flow-label">Game Thread | Every Frame | Synchronous Handler</span>
+      </div>
+    </div>
+    <div style="text-align:center;color:#4a4a6a;font-size:1.4em;margin:8px 0">&darr;</div>
+    <div class="flow-row">
+      <div class="flow-node engine">NexusCommandDispatcher<br><span class="flow-label">26 Handlers</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node engine">Handler::Handle()<br><span class="flow-label">Direct Game Thread</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node engine">JSON Response<br><span class="flow-label">&lt;1ms cached reads</span></div>
+    </div>
+    <div style="text-align:center;color:#4a4a6a;font-size:1.4em;margin:8px 0">&darr;</div>
+    <div class="flow-row">
+      <div class="flow-node http">HTTP 200 JSON<br><span class="flow-label">Same frame</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node external">Python Tool<br><span class="flow-label">_sf_execute()</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node external">Claude Code<br><span class="flow-label">Tool Result</span></div>
+    </div>
+  </div>
+
+  <h2 style="text-align:center;margin:32px 0 24px;color:#9ca3af">Autonomous Agent Flow (In-Engine)</h2>
+  <div class="flow-container">
+    <div class="flow-row">
+      <div class="flow-node agent">Agent Worker<br><span class="flow-label">FTimerManager 1s</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node engine">Cached SceneState<br><span class="flow-label">Per-frame, zero cost</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node agent">Decide Action<br><span class="flow-label">Goal Planning</span></div>
+    </div>
+    <div style="text-align:center;color:#4a4a6a;font-size:1.4em;margin:8px 0">&darr;</div>
+    <div class="flow-row">
+      <div class="flow-node engine">Dispatcher::Dispatch()<br><span class="flow-label">Direct, same thread</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node ml">AsyncTask (ML Inference)<br><span class="flow-label">Background Thread</span></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node agent">Evaluate + Learn<br><span class="flow-label">Memory Store</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- COMPARISON -->
+<div id="compare" class="view">
+  <h2 style="text-align:center;margin-bottom:24px;color:#9ca3af">Performance Comparison</h2>
+  <table class="compare-table">
+    <thead>
+      <tr><th>Metric</th><th>Before (TCP Background Thread)</th><th>After (In-Game HTTP)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Status Query Latency</td><td class="metric-bad">60-90ms (25s with idle timeout)</td><td class="metric-good">&lt;1ms (cached state)</td></tr>
+      <tr><td>Mutation Latency</td><td class="metric-bad">60-90ms (cross-thread dispatch)</td><td class="metric-good">&lt;5ms (same-thread)</td></tr>
+      <tr><td>Concurrent Clients</td><td class="metric-bad">1 (single-threaded accept)</td><td class="metric-good">Unlimited (HTTP module)</td></tr>
+      <tr><td>Background Threads</td><td class="metric-bad">1 per TCP server</td><td class="metric-good">0 (ticker-based)</td></tr>
+      <tr><td>State Querying</td><td class="metric-bad">Per-command (6 function calls)</td><td class="metric-good">Per-frame cache (1 copy)</td></tr>
+      <tr><td>Agent Execution</td><td class="metric-neutral">External Python process</td><td class="metric-good">In-engine C++ (direct API)</td></tr>
+      <tr><td>Parallel Agents</td><td class="metric-bad">1 (linear Python loop)</td><td class="metric-good">5 concurrent workers</td></tr>
+      <tr><td>ML Inference</td><td class="metric-neutral">HTTP to sidecar (round-trip)</td><td class="metric-good">AsyncTask + callback (non-blocking)</td></tr>
+      <tr><td>UI Visibility</td><td class="metric-bad">None (external only)</td><td class="metric-good">Glassmorphism activity panel</td></tr>
+      <tr><td>Call Logging</td><td class="metric-neutral">Python JSONL only</td><td class="metric-good">Unified C++ + Python JSONL</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- PARALLEL AGENTS -->
+<div id="agents" class="view">
+  <h2 style="text-align:center;margin-bottom:8px;color:#9ca3af">Parallel Agent Pool</h2>
+  <p style="text-align:center;color:#6b7280;margin-bottom:24px">Up to 5 concurrent agent workers, each with independent OODA loop and timer</p>
+
+  <div class="agent-pool">
+    <div class="agent-card">
+      <div class="status-dot running"></div>
+      <h4 style="color:#4d9af5">Agent #1</h4>
+      <div class="goal">recreate_2d_as_3d: "Modern kitchen with island"</div>
+      <div class="progress-bar"><div class="progress-fill blue" style="width:65%"></div></div>
+      <div class="meta"><span>Iteration 13/20</span><span style="color:#34d399">Acting</span></div>
+    </div>
+    <div class="agent-card">
+      <div class="status-dot running"></div>
+      <h4 style="color:#a855f7">Agent #2</h4>
+      <div class="goal">improve_lighting: "Warm sunset ambiance"</div>
+      <div class="progress-bar"><div class="progress-fill purple" style="width:30%"></div></div>
+      <div class="meta"><span>Iteration 3/10</span><span style="color:#4d9af5">Observing</span></div>
+    </div>
+    <div class="agent-card">
+      <div class="status-dot running"></div>
+      <h4 style="color:#ec4899">Agent #3</h4>
+      <div class="goal">refine_placement: "Match reference photo"</div>
+      <div class="progress-bar"><div class="progress-fill pink" style="width:80%"></div></div>
+      <div class="meta"><span>Iteration 8/10</span><span style="color:#fbbf24">Evaluating</span></div>
+    </div>
+    <div class="agent-card">
+      <div class="status-dot idle"></div>
+      <h4 style="color:#6b7280">Agent #4</h4>
+      <div class="goal" style="color:#4a4a6a">Idle (waiting for goal)</div>
+      <div class="progress-bar"><div class="progress-fill blue" style="width:0%"></div></div>
+      <div class="meta"><span>-</span><span style="color:#6b7280">Idle</span></div>
+    </div>
+    <div class="agent-card">
+      <div class="status-dot idle"></div>
+      <h4 style="color:#6b7280">Agent #5</h4>
+      <div class="goal" style="color:#4a4a6a">Idle (waiting for goal)</div>
+      <div class="progress-bar"><div class="progress-fill blue" style="width:0%"></div></div>
+      <div class="meta"><span>-</span><span style="color:#6b7280">Idle</span></div>
+    </div>
+  </div>
+
+  <div style="text-align:center;margin-top:32px">
+    <h3 style="color:#9ca3af;margin-bottom:16px">Agent Worker State Machine</h3>
+    <div class="flow-row">
+      <div class="flow-node agent" style="min-width:100px">Idle</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node engine" style="min-width:100px">Observing</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node agent" style="min-width:100px">Deciding</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node http" style="min-width:100px">Acting</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node ml" style="min-width:100px">Evaluating</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node engine" style="min-width:100px">Observing</div>
+    </div>
+    <p style="color:#6b7280;margin-top:12px;font-size:0.85em">Each worker loops independently | Game-thread ops in timer callback | ML ops dispatched to background thread</p>
+  </div>
+</div>
+
+<!-- UI MOCKUP -->
+<div id="ui" class="view">
+  <h2 style="text-align:center;margin-bottom:8px;color:#9ca3af">In-App Activity Panel</h2>
+  <p style="text-align:center;color:#6b7280;margin-bottom:24px">Glassmorphism Slate widget matching SceneForge's design | Toggle with N key</p>
+
+  <div class="panel-mockup">
+    <div class="panel-header">
+      <h4><span class="dot"></span> NEXUS AI</h4>
+      <span style="font-size:0.75em;color:#6b7280">3 agents active</span>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">Command Stream</div>
+      <div class="cmd-row"><span class="cmd-ok">&#10003;</span><span class="cmd-name">sf.get_status</span><span class="cmd-time fast">0.8ms</span></div>
+      <div class="cmd-row"><span class="cmd-ok">&#10003;</span><span class="cmd-name">sf.generate_image</span><span class="cmd-time medium">2.4s</span></div>
+      <div class="cmd-row"><span class="cmd-ok">&#10003;</span><span class="cmd-name">sf.segment</span><span class="cmd-time fast">3.2ms</span></div>
+      <div class="cmd-row"><span class="cmd-ok">&#10003;</span><span class="cmd-name">sf.accept_segment</span><span class="cmd-time fast">1.1ms</span></div>
+      <div class="cmd-row"><span class="cmd-ok">&#10003;</span><span class="cmd-name">sf.convert_to_3d</span><span class="cmd-time fast">4.7ms</span></div>
+      <div class="cmd-row"><span class="cmd-fail">&#10007;</span><span class="cmd-name">sf.move_actor</span><span class="cmd-time slow">timeout</span></div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">Active Agents</div>
+      <div style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;font-size:0.85em"><span style="color:#4d9af5">recreate_2d_as_3d</span><span style="color:#34d399">65%</span></div>
+        <div class="progress-bar" style="height:3px;background:#1a1a2a;border-radius:2px;overflow:hidden;margin-top:4px"><div class="progress-fill blue" style="width:65%;height:100%"></div></div>
+      </div>
+      <div style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;font-size:0.85em"><span style="color:#a855f7">improve_lighting</span><span style="color:#34d399">30%</span></div>
+        <div class="progress-bar" style="height:3px;background:#1a1a2a;border-radius:2px;overflow:hidden;margin-top:4px"><div class="progress-fill purple" style="width:30%;height:100%"></div></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:0.85em"><span style="color:#ec4899">refine_placement</span><span style="color:#34d399">80%</span></div>
+        <div class="progress-bar" style="height:3px;background:#1a1a2a;border-radius:2px;overflow:hidden;margin-top:4px"><div class="progress-fill pink" style="width:80%;height:100%"></div></div>
+      </div>
+    </div>
+
+    <div class="panel-section" style="border-bottom:none">
+      <div class="panel-section-title">Memory / Learning</div>
+      <div class="memory-stats">
+        <div class="memory-stat"><div class="num blue">847</div><div class="label">Calls Logged</div></div>
+        <div class="memory-stat"><div class="num green">23</div><div class="label">Patterns</div></div>
+        <div class="memory-stat"><div class="num amber">12</div><div class="label">Failures</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TIMELINE -->
+<div id="timeline" class="view">
+  <h2 style="text-align:center;margin-bottom:24px;color:#9ca3af">Implementation Timeline</h2>
+
+  <div class="timeline">
+    <div class="timeline-item step1">
+      <h4 style="color:#4d9af5">Step 1: Foundation</h4>
+      <p>Add HTTPServer dependency to Build.cs. Create FNexusCallLog for unified JSONL logging.</p>
+      <div class="files">Nexus.Build.cs, NexusCallLog.h/.cpp</div>
+    </div>
+    <div class="timeline-item step2">
+      <h4 style="color:#10b981">Step 2: HTTP Server</h4>
+      <p>Create UNexusHttpSubsystem with FHttpServerModule routes. Bind /nexus/{command} wildcard. Synchronous dispatch to existing NexusCommandDispatcher.</p>
+      <div class="files">NexusHttpSubsystem.h/.cpp</div>
+    </div>
+    <div class="timeline-item step3">
+      <h4 style="color:#a855f7">Step 3: Scene State Cache</h4>
+      <p>Create FNexusSceneState struct. Cache per-frame in UNexusHttpSubsystem::Tick(). Handlers read cached state for zero-cost queries.</p>
+      <div class="files">NexusSceneState.h, NexusHttpSubsystem.cpp (Tick)</div>
+    </div>
+    <div class="timeline-item step4">
+      <h4 style="color:#ec4899">Step 4: Activity Panel</h4>
+      <p>Create SNexusActivityPanel with glassmorphism styling. Integrate into SceneForgeOverlayHUD with brain icon + N hotkey. Wire command stream from HTTP subsystem.</p>
+      <div class="files">SNexusActivityPanel.h/.cpp, SceneForgeOverlayHUD.h/.cpp</div>
+    </div>
+    <div class="timeline-item step5">
+      <h4 style="color:#f59e0b">Step 5: Parallel Agents</h4>
+      <p>Create UNexusAgentSubsystem with worker pool. Each worker has independent FTimerHandle and OODA state machine. Add agent_run/status/abort commands to SceneForge handler.</p>
+      <div class="files">NexusAgentSubsystem.h/.cpp, NexusSceneForgeHandler.cpp</div>
+    </div>
+  </div>
+</div>
+
+<!-- OPTIONS / TRADE-OFFS -->
+<div id="options" class="view">
+  <h2 style="text-align:center;margin-bottom:8px;color:#9ca3af">Architecture Options</h2>
+  <p style="text-align:center;color:#6b7280;margin-bottom:24px">Three approaches considered for the in-game command server</p>
+
+  <div class="option-grid">
+    <div class="option-card recommended">
+      <h3 style="color:#10b981">Option A: FHttpServerModule</h3>
+      <div class="desc">UE5's built-in HTTP server. Ticker-based, game-thread native. Route handlers execute during Tick(). Used by UE5's own ExternalRpcRegistry.</div>
+      <div class="pro-con pro"><span class="icon">+</span> Zero dispatch latency (same frame response)</div>
+      <div class="pro-con pro"><span class="icon">+</span> Zero background threads needed</div>
+      <div class="pro-con pro"><span class="icon">+</span> HTTP semantics (clean req/res, no TCP fragility)</div>
+      <div class="pro-con pro"><span class="icon">+</span> Multi-client support (no connection queuing)</div>
+      <div class="pro-con pro"><span class="icon">+</span> Proven in production (ExternalRpcRegistry)</div>
+      <div class="pro-con con"><span class="icon">-</span> HTTP parsing overhead (~0.1ms per request)</div>
+      <div class="pro-con con"><span class="icon">-</span> New port (13378) during transition period</div>
+      <div class="pro-con con"><span class="icon">-</span> Requires HTTPServer module in Build.cs</div>
+    </div>
+
+    <div class="option-card">
+      <h3 style="color:#fbbf24">Option B: Fix TCP Threading</h3>
+      <div class="desc">Keep existing TCP server but make it multi-threaded (one thread per connection) and add non-blocking game thread dispatch with event-driven completion.</div>
+      <div class="pro-con pro"><span class="icon">+</span> No port change needed</div>
+      <div class="pro-con pro"><span class="icon">+</span> Fully backward compatible immediately</div>
+      <div class="pro-con pro"><span class="icon">+</span> Binary protocol (slightly less overhead)</div>
+      <div class="pro-con con"><span class="icon">-</span> Still pays cross-thread dispatch cost</div>
+      <div class="pro-con con"><span class="icon">-</span> More threading complexity (race conditions)</div>
+      <div class="pro-con con"><span class="icon">-</span> Idle timeout problem persists per-thread</div>
+      <div class="pro-con con"><span class="icon">-</span> No standard request/response semantics</div>
+    </div>
+
+    <div class="option-card">
+      <h3 style="color:#a855f7">Option C: Shared Memory IPC</h3>
+      <div class="desc">No network at all. Python pushes to a shared memory queue, C++ drains it every frame via FCoreDelegates::OnBeginFrame. Absolute minimum latency.</div>
+      <div class="pro-con pro"><span class="icon">+</span> Literally same-frame (sub-microsecond)</div>
+      <div class="pro-con pro"><span class="icon">+</span> No network stack at all</div>
+      <div class="pro-con pro"><span class="icon">+</span> No port conflicts</div>
+      <div class="pro-con con"><span class="icon">-</span> Complex shared memory setup (platform-specific)</div>
+      <div class="pro-con con"><span class="icon">-</span> Python and C++ must agree on memory layout</div>
+      <div class="pro-con con"><span class="icon">-</span> Debugging is much harder (no HTTP tools)</div>
+      <div class="pro-con con"><span class="icon">-</span> No external access (only co-process Python)</div>
+    </div>
+  </div>
+</div>
+
+<!-- RISKS / GAPS -->
+<div id="risks" class="view">
+  <h2 style="text-align:center;margin-bottom:8px;color:#9ca3af">Risks and Gaps Identified</h2>
+  <p style="text-align:center;color:#6b7280;margin-bottom:24px">Issues discovered during research that the implementation must address</p>
+
+  <div class="risk-grid">
+    <div class="risk-card high">
+      <h4>Agent Conflict on Shared Actors <span class="severity high">HIGH</span></h4>
+      <p>Two parallel agents can move the same actor simultaneously. The second write silently wins, producing unpredictable placement.</p>
+      <div class="mitigation">Mitigation: Resource locking via TSet&lt;FString&gt; LockedActorPaths per agent worker. Lock acquired before Acting, released after Evaluating.</div>
+    </div>
+
+    <div class="risk-card high">
+      <h4>Unbounded Memory Growth <span class="severity high">HIGH</span></h4>
+      <p>JSONL call logs append forever. After heavy use, daily files can reach 100MB+. No archival, compaction, or TTL exists.</p>
+      <div class="mitigation">Mitigation: Log rotation (keep 30 days, gzip older). Max file size 50MB with rollover. Summarize old entries into aggregate stats.</div>
+    </div>
+
+    <div class="risk-card medium">
+      <h4>Stale Ground Plane During Scene Build <span class="severity medium">MEDIUM</span></h4>
+      <p>RANSAC ground detection runs once at pipeline start. As objects are placed, the depth-derived ground plane becomes stale, causing drift in later object placement.</p>
+      <div class="mitigation">Mitigation: Re-run /detect-scene-surfaces after every 3 objects placed. Agent evaluator checks ground consistency.</div>
+    </div>
+
+    <div class="risk-card medium">
+      <h4>Segment Deduplication Missing <span class="severity medium">MEDIUM</span></h4>
+      <p>The /check-overlap MLServer endpoint exists but is not wired into the agent loop. Re-segmenting the same area creates duplicate meshes.</p>
+      <div class="mitigation">Mitigation: Agent calls /check-overlap before accept_segment. Overlap threshold 0.7 triggers skip.</div>
+    </div>
+
+    <div class="risk-card medium">
+      <h4>MaxConcurrentConversions Not Agent-Aware <span class="severity medium">MEDIUM</span></h4>
+      <p>The UI setting limits parallel conversions, but agents can bypass it by calling convert_all directly. No coordination between agents and the pipeline's own concurrency limiter.</p>
+      <div class="mitigation">Mitigation: Agent reads USceneForgeSettings::MaxConcurrentConversions before dispatching. Shared ActiveConversionCount across agent pool.</div>
+    </div>
+
+    <div class="risk-card low">
+      <h4>VLM Refinement Capped at 3 Iterations <span class="severity low">LOW</span></h4>
+      <p>The existing refinement loop maxes at 3 iterations. Complex scenes may need more passes. With parallel agents, refinement can run continuously.</p>
+      <div class="mitigation">Mitigation: Dedicated refine_placement agent with configurable iteration limit (default 10). Runs alongside the conversion pipeline.</div>
+    </div>
+
+    <div class="risk-card low">
+      <h4>GameMode Null During Subsystem Init <span class="severity low">LOW</span></h4>
+      <p>UGameInstanceSubsystem::Initialize() runs before the GameMode spawns. Scene state cache and agent subsystem must handle null GameMode gracefully.</p>
+      <div class="mitigation">Mitigation: Null checks in Tick() and AgentTick(). Return default empty state. Agent stays Idle until GameMode is valid.</div>
+    </div>
+
+    <div class="risk-card low">
+      <h4>FHttpServerModule Availability in -game Mode <span class="severity low">LOW</span></h4>
+      <p>FHttpServerModule is a Runtime module (not Editor-only), but its behavior in standalone -game builds may differ from Editor PIE. Needs validation.</p>
+      <div class="mitigation">Mitigation: Test on first build. Fallback: keep TCP server alongside HTTP server for transition.</div>
+    </div>
+  </div>
+</div>
+
+<!-- FEATURE ROADMAP -->
+<div id="features" class="view">
+  <h2 style="text-align:center;margin-bottom:8px;color:#9ca3af">Feature Roadmap</h2>
+  <p style="text-align:center;color:#6b7280;margin-bottom:24px">Prioritized features based on whole-scene pipeline analysis (from Engram vault)</p>
+
+  <table class="feature-table">
+    <thead>
+      <tr><th>Priority</th><th>Feature</th><th>Why</th><th>How</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="priority-badge p0">P0</span></td>
+        <td><strong>Local Grounding DINO Agent</strong></td>
+        <td>Remove Gemini API latency (3-5s) for re-scans. Local detection at ~200ms.</td>
+        <td>Agent calls <code>/detect-objects-local</code> with cached GDINO prompt. No API key needed.</td>
+      </tr>
+      <tr>
+        <td><span class="priority-badge p0">P0</span></td>
+        <td><strong>Failure Recovery with Provider Fallback</strong></td>
+        <td>Meshy failures block the pipeline. Auto-retry with Tripo3D or Rodin unblocks it.</td>
+        <td>Agent tracks provider failure rates in memory. On failure, retries with next-best provider.</td>
+      </tr>
+      <tr>
+        <td><span class="priority-badge p0">P0</span></td>
+        <td><strong>Auto-Quality Scaling by Object Importance</strong></td>
+        <td>Large foreground objects need High quality, small background objects need Simple. Saves API cost and time.</td>
+        <td>Agent reads segment area + depth. Large foreground = High, medium = Medium, small/background = Simple.</td>
+      </tr>
+      <tr>
+        <td><span class="priority-badge p1">P1</span></td>
+        <td><strong>Continuous VLM Refinement Agent</strong></td>
+        <td>Current 3-iteration cap is insufficient for complex scenes. Dedicated agent refines placement continuously.</td>
+        <td>Separate agent with goal <code>refine_placement</code> starts after first 3 objects placed. Runs alongside generation.</td>
+      </tr>
+      <tr>
+        <td><span class="priority-badge p1">P1</span></td>
+        <td><strong>Depth-Adaptive Ground Plane Refresh</strong></td>
+        <td>Stale RANSAC ground plane causes drift as objects accumulate. Need periodic re-detection.</td>
+        <td>Agent triggers <code>/detect-scene-surfaces</code> every 3 placed meshes. Updates ground_plane_y for subsequent objects.</td>
+      </tr>
+      <tr>
+        <td><span class="priority-badge p1">P1</span></td>
+        <td><strong>Scene Version Snapshots</strong></td>
+        <td>No rollback if agent makes bad decisions. Need checkpoints at each pipeline stage.</td>
+        <td>Auto-save session at: post-detection, post-segmentation, post-conversion. Named: <code>{session}_step{N}</code>.</td>
+      </tr>
+      <tr>
+        <td><span class="priority-badge p1">P1</span></td>
+        <td><strong>Streaming Object Appearance</strong></td>
+        <td>Users see empty scene until all objects convert. Each mesh should appear as it completes.</td>
+        <td>Already implemented (parallel conversion). Agent broadcasts progress events to activity panel per-object.</td>
+      </tr>
+      <tr>
+        <td><span class="priority-badge p1">P1</span></td>
+        <td><strong>Overlap Deduplication</strong></td>
+        <td>Re-segmenting the same area creates duplicate meshes. Wastes API calls and clutters scene.</td>
+        <td>Agent calls <code>/check-overlap</code> before <code>accept_segment</code>. Overlap &gt; 0.7 triggers skip.</td>
+      </tr>
+      <tr>
+        <td><span class="priority-badge p2">P2</span></td>
+        <td><strong>Agent Memory Priming</strong></td>
+        <td>Agents start cold each session. Past successes/failures should inform first decisions.</td>
+        <td>On <code>StartGoal()</code>, recall top-20 entries from <code>~/.nexus/memory/{goal_type}.jsonl</code>. Bias planner toward successful patterns.</td>
+      </tr>
+      <tr>
+        <td><span class="priority-badge p2">P2</span></td>
+        <td><strong>Multi-View Scene Evaluation</strong></td>
+        <td>Single-viewpoint screenshot misses back/side placement issues. Need 4-view comparison.</td>
+        <td>Agent captures 4 screenshots (front, left, right, top-down) via <code>set_camera</code>, sends all to VLM for holistic evaluation.</td>
+      </tr>
+      <tr>
+        <td><span class="priority-badge p2">P2</span></td>
+        <td><strong>Material/Lighting Co-Agent</strong></td>
+        <td>Meshes arrive with baked textures. Scene lighting often clashes with material colors.</td>
+        <td>Dedicated agent analyzes image color palette, adjusts directional light color temperature and intensity to match reference mood.</td>
+      </tr>
+      <tr>
+        <td><span class="priority-badge p2">P2</span></td>
+        <td><strong>RL Training Pipeline</strong></td>
+        <td>Call logs accumulate but are never used for learning. Need offline RL processing.</td>
+        <td>Python script reads JSONL, extracts (state, action, reward) tuples. Reward = visual_score improvement. Train policy model for agent planner.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- PIPELINE DEEP-DIVE -->
+<div id="pipeline" class="view">
+  <h2 style="text-align:center;margin-bottom:8px;color:#9ca3af">Whole-Scene Generation Pipeline</h2>
+  <p style="text-align:center;color:#6b7280;margin-bottom:24px">From vault: complete flow with endpoints, timing, and parallelism</p>
+
+  <div class="pipeline-step">
+    <div class="step-num" style="background:#1a2a3a;color:#4d9af5">1</div>
+    <div class="step-content">
+      <h4 style="color:#4d9af5">Object Detection (Gemini 2.5 Flash)</h4>
+      <p>Vision model identifies all objects with labels, normalized bounding boxes, and foreground/background classification. Structured JSON output via <code>responseMimeType</code>.</p>
+      <span class="endpoint">POST /detect-objects</span>
+      <span class="endpoint" style="margin-left:4px">POST /detect-objects-local</span> <span style="font-size:0.75em;color:#6b7280">(Grounding DINO fallback)</span>
+      <div class="timing">~3-5s (API) | ~200ms (local GDINO)</div>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="step-num" style="background:#1a3a2a;color:#34d399">2</div>
+    <div class="step-content">
+      <h4 style="color:#34d399">Batch Segmentation + Scene Shell <span class="parallel-badge">PARALLEL</span></h4>
+      <p><strong>2a:</strong> SAM 2.1 box-prompt segmentation for all detected foreground objects. Returns masks, bboxes, centroids, areas.<br>
+      <strong>2b:</strong> Open3D Poisson reconstruction from 16-bit depth + color to GLB scene shell mesh. Both run simultaneously.</p>
+      <span class="endpoint">POST /segment-batch</span>
+      <span class="endpoint" style="margin-left:4px">POST /depth-to-mesh</span>
+      <div class="timing">~1-3s (parallel)</div>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="step-num" style="background:#2a1a2a;color:#c084fc">3</div>
+    <div class="step-content">
+      <h4 style="color:#c084fc">3D BBox Lifting + Surface Detection</h4>
+      <p>Compute full 3D bounding boxes from depth + masks (center, dimensions, ground contact, yaw via PCA). RANSAC plane fitting detects ground/walls/ceiling for clean geometry.</p>
+      <span class="endpoint">POST /lift-to-3d-bbox</span>
+      <span class="endpoint" style="margin-left:4px">POST /detect-scene-surfaces</span>
+      <div class="timing">~500ms</div>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="step-num" style="background:#3a1a2a;color:#f9a8d4">4</div>
+    <div class="step-content">
+      <h4 style="color:#f9a8d4">Parallel 3D Conversion <span class="parallel-badge">UP TO 5 CONCURRENT</span></h4>
+      <p>Each segment: crop masked region, send to Meshy/Tripo3D/Rodin, poll for completion, download GLB, import via glTFRuntime, scale to 3D bbox, place at deprojected position. Managed by <code>TMap&lt;FString, FTimerHandle&gt; ParallelPollTimers</code>.</p>
+      <span class="endpoint">POST /convert-to-3d</span>
+      <span class="endpoint" style="margin-left:4px">GET /{provider}-status/{id}</span>
+      <div class="timing">30-120s per object | 5 concurrent = 5-10x speedup</div>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="step-num" style="background:#2a2a1a;color:#fbbf24">5</div>
+    <div class="step-content">
+      <h4 style="color:#fbbf24">VLM Refinement Loop (Gemini Vision)</h4>
+      <p>Capture scene screenshot, compare side-by-side with target image. Gemini returns per-actor delta adjustments (position, yaw, scale). Iterate up to 3x (configurable).</p>
+      <span class="endpoint">POST /refine-placement</span>
+      <div class="timing">~5s per iteration | 3 iterations default</div>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="step-num" style="background:#1a3a2a;color:#34d399">6</div>
+    <div class="step-content">
+      <h4 style="color:#34d399">Finalize Scene</h4>
+      <p>Auto-hide 2D reference image, switch to Explore mode. Scene ready for WASD flythrough inspection. Session auto-saved.</p>
+      <div class="timing">Instant</div>
+    </div>
+  </div>
+
+  <div style="margin-top:32px;padding:20px;background:#12121f;border-radius:12px;border:1px solid #2a2a4a">
+    <h3 style="color:#9ca3af;margin-bottom:12px">Key Data from Vault</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.85em">
+      <div><span style="color:#6b7280">Detection models:</span> <span style="color:#4d9af5">Gemini 2.5 Flash (API)</span> + <span style="color:#a855f7">Grounding DINO (local)</span></div>
+      <div><span style="color:#6b7280">Segmentation:</span> <span style="color:#34d399">SAM 2.1 Hiera-Large</span> (box prompts, ~50ms/object)</div>
+      <div><span style="color:#6b7280">Depth models:</span> <span style="color:#4d9af5">DA V2, Depth Pro</span> (metric + FOV + camera height)</div>
+      <div><span style="color:#6b7280">3D providers:</span> <span style="color:#ec4899">Meshy, Tripo3D, Rodin</span> (configurable per-run)</div>
+      <div><span style="color:#6b7280">Placement:</span> Pinhole deprojection + 3D BBox lifting + VLM refinement</div>
+      <div><span style="color:#6b7280">Scene shell:</span> Open3D Poisson reconstruction (depth=9, density trim 2%)</div>
+      <div><span style="color:#6b7280">Concurrency:</span> MaxConcurrentConversions=5 (configurable in Settings)</div>
+      <div><span style="color:#6b7280">Tests:</span> 25 tests across 3 files (depth_to_mesh, detect_objects, segment_batch)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function showView(id) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+}
+// Animate agent progress bars
+setInterval(() => {
+  document.querySelectorAll('.agent-card .progress-fill').forEach(bar => {
+    const current = parseFloat(bar.style.width) || 0;
+    if (current > 0 && current < 100) {
+      bar.style.width = Math.min(100, current + Math.random() * 3) + '%';
+    }
+  });
+}, 2000);
+</script>
+
+</body>
+</html>
